@@ -1,9 +1,10 @@
 use crate::DeepSafeSubClient;
 use sp_core::H256 as Hash;
+use subxt::ext::subxt_core::utils::AccountId20;
 
 pub async fn register_device_rpc(
     client: &DeepSafeSubClient,
-    owner: crate::deepsafe::runtime_types::fp_account::AccountId20,
+    owner: AccountId20,
     report: Vec<u8>,
     version: u16,
     signature: Vec<u8>,

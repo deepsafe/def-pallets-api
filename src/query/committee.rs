@@ -1,7 +1,7 @@
-use crate::deepsafe::runtime_types::fp_account::AccountId20;
 use crate::deepsafe::runtime_types::pallet_committee::types::{Committee, GlobalConfig};
 use crate::DeepSafeSubClient;
 use sp_core::H256 as Hash;
+use subxt::ext::subxt_core::utils::AccountId20;
 
 pub async fn global_epoch(
     sub_client: &DeepSafeSubClient,
@@ -38,12 +38,11 @@ pub async fn committees(
 
 pub async fn committees_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<Committee<AccountId20, u32>>, subxt::Error> {
-    let store = crate::deepsafe::storage().committee().committees_root();
+    let store = crate::deepsafe::storage().committee().committees_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| res.into_iter().map(|v| v.1).collect())
 }
@@ -97,16 +96,15 @@ pub async fn member_links(
 
 pub async fn member_links_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<(Vec<u8>, u32)>, subxt::Error> {
-    let store = crate::deepsafe::storage().committee().member_links_root();
+    let store = crate::deepsafe::storage().committee().member_links_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| {
             res.into_iter()
-                .map(|(k, v)| (k.0[49..].to_vec(), v))
+                .map(|(k, v)| (k[49..].to_vec(), v))
                 .collect()
         })
 }
@@ -143,21 +141,20 @@ pub async fn epoch_change_failures(
 
 pub async fn epoch_change_failures_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<(u32, u8, u8)>, subxt::Error> {
     let store = crate::deepsafe::storage()
         .committee()
-        .epoch_changes_failures_root();
+        .epoch_changes_failures_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| {
             res.into_iter()
                 .map(|(k, v)| {
                     let mut cid_bytes = [0u8; 4];
-                    cid_bytes.copy_from_slice(&k.0[48..52]);
-                    (u32::from_le_bytes(cid_bytes), k.0[68], v)
+                    cid_bytes.copy_from_slice(&k[48..52]);
+                    (u32::from_le_bytes(cid_bytes), k[68], v)
                 })
                 .collect()
         })

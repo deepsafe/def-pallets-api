@@ -3,8 +3,10 @@ use crate::{DeepSafeConfig, DeepSafeSubClient as SubClient};
 use def_node_primitives::Hash;
 use std::{cmp::Ordering, collections::HashMap};
 use subxt::events::EventDetails;
+use subxt::blocks::BlockRef;
 use subxt::Config;
 use tokio::sync::mpsc::Sender;
+use crate::query::system::{block_hash, latest_block_hash};
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum WatcherMode {
@@ -69,6 +71,7 @@ impl EventWatcher {
             match get_block_hash(self.client.clone(), WatcherMode::Finalized).await {
                 Ok(hash) => match get_block_number(self.client.clone(), Some(hash)).await {
                     Ok(block_number) => {
+                        log::info!(target: &self.log_target, "init finalized block_number: {block_number:?}");
                         self.finalized = block_number;
                         log::info!(target: &self.log_target, "Initialize event_watcher with latest_block {}, finalized block {}", self.latest, self.finalized);
                         break;
@@ -97,22 +100,27 @@ impl EventWatcher {
             loop {
                 if matches!(mode, WatcherMode::Latest | WatcherMode::Both) {
                     match get_block_number(self.client.clone(), None).await {
-                        Ok(current_number) => match self.latest.cmp(&current_number) {
-                            Ordering::Less => {
-                                log::trace!(target: &self.log_target, "handle latest block from {:?} to {current_number}", self.latest);
-                                self.handle_blocks_events(
-                                    self.latest + 1,
-                                    current_number,
-                                    WatcherMode::Latest,
-                                )
-                                .await;
-                                self.latest = current_number;
-                            }
-                            Ordering::Equal => {
-                                log::debug!(target: &self.log_target, "caught up with the best latest block height: {current_number:?}")
-                            }
-                            Ordering::Greater => {
-                                log::debug!(target: &self.log_target, "latest block height is rolled back, from {:?} to {current_number:?}", self.latest)
+                        Ok(current_number) => {
+                            // delay one block for 'frame_system::block_hash'
+                            let current_number = current_number - 1;
+                            log::debug!(target: &self.log_target, "get latest block number: {current_number:?}");
+                            match self.latest.cmp(&current_number) {
+                                Ordering::Less => {
+                                    log::trace!(target: &self.log_target, "handle latest block from {:?} to {current_number}", self.latest);
+                                    self.handle_blocks_events(
+                                        self.latest + 1,
+                                        current_number,
+                                        WatcherMode::Latest,
+                                    )
+                                        .await;
+                                    self.latest = current_number;
+                                }
+                                Ordering::Equal => {
+                                    log::debug!(target: &self.log_target, "caught up with the best latest block height: {current_number:?}")
+                                }
+                                Ordering::Greater => {
+                                    log::debug!(target: &self.log_target, "latest block height is rolled back, from {:?} to {current_number:?}", self.latest)
+                                }
                             }
                         },
                         Err(e) => log::error!(target: &self.log_target, "get latest block: {e:?}"),
@@ -122,22 +130,26 @@ impl EventWatcher {
                 if matches!(mode, WatcherMode::Finalized | WatcherMode::Both) {
                     match get_block_hash(self.client.clone(), WatcherMode::Finalized).await {
                         Ok(hash) => match get_block_number(self.client.clone(), Some(hash)).await {
-                            Ok(current_number) => match self.finalized.cmp(&current_number) {
-                                Ordering::Less => {
-                                    log::trace!(target: &self.log_target, "handle finalized block from {:?} to {current_number}", self.finalized);
-                                    self.handle_blocks_events(
-                                        self.finalized + 1,
-                                        current_number,
-                                        WatcherMode::Finalized,
-                                    )
-                                    .await;
-                                    self.finalized = current_number;
-                                }
-                                Ordering::Equal => {
-                                    log::debug!(target: &self.log_target, "caught up with the best finalized block height: {current_number:?}")
-                                }
-                                Ordering::Greater => {
-                                    log::warn!(target: &self.log_target, "finalized block height is rolled back, local: {:?}, chain: {current_number:?}", self.finalized)
+                            Ok(current_number) => {
+                                let current_number = current_number - 1;
+                                log::debug!(target: &self.log_target, "get finalized block number: {current_number:?}");
+                                match self.finalized.cmp(&current_number) {
+                                    Ordering::Less => {
+                                        log::trace!(target: &self.log_target, "handle finalized block from {:?} to {current_number}", self.finalized);
+                                        self.handle_blocks_events(
+                                            self.finalized + 1,
+                                            current_number,
+                                            WatcherMode::Finalized,
+                                        )
+                                            .await;
+                                        self.finalized = current_number;
+                                    }
+                                    Ordering::Equal => {
+                                        log::debug!(target: &self.log_target, "caught up with the best finalized block height: {current_number:?}")
+                                    }
+                                    Ordering::Greater => {
+                                        log::warn!(target: &self.log_target, "finalized block height is rolled back, local: {:?}, chain: {current_number:?}", self.finalized)
+                                    }
                                 }
                             },
                             Err(e) => {
@@ -165,15 +177,7 @@ impl EventWatcher {
     async fn handle_blocks_events(&self, from: u32, to: u32, mode: WatcherMode) {
         // handle block one by one
         for block in from..=to {
-            match self
-                .client
-                .client
-                .read()
-                .await
-                .rpc()
-                .block_hash(Some(block.into()))
-                .await
-            {
+            match block_hash(&self.client, block, None).await {
                 Ok(hash) => match hash {
                     Some(hash) => {
                         let events = match self.client.client.read().await.events().at(hash).await {
@@ -244,15 +248,11 @@ pub async fn get_events(
     block: u32,
     pallets: Option<Vec<&str>>,
 ) -> anyhow::Result<(Hash, Vec<EventDetails<DeepSafeConfig>>)> {
-    let hash = client
-        .client
-        .read()
-        .await
-        .rpc()
-        .block_hash(Some(block.into()))
-        .await
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?
-        .ok_or(anyhow::anyhow!("no block hash for block {block}"))?;
+    let hash = block_hash(
+        client,
+        block,
+        None,
+    ).await.map_err(|e| anyhow::anyhow!("{e:?}"))?.ok_or(anyhow::anyhow!("no block hash for block {block}"))?;
     let events = match client.client.read().await.events().at(hash).await {
         Ok(events) => events,
         Err(e) => anyhow::bail!("get events for block: {block}, hash: {hash:?} failed for: {e:?}"),
@@ -281,9 +281,8 @@ pub async fn get_block_hash(
 ) -> Result<<DeepSafeConfig as Config>::Hash, String> {
     let guard_client = client.client.read().await;
     match mode {
-        WatcherMode::Latest => match guard_client.rpc().block_hash(None).await {
-            Ok(Some(hash)) => return Ok(hash),
-            Ok(None) => return Err("get empty lastet block".to_string()),
+        WatcherMode::Latest => match latest_block_hash(&client, None).await {
+            Ok(hash) => return Ok(hash),
             Err(e) => {
                 drop(guard_client);
                 log::error!("get latest block failed for : {e:?}, try to rebuild client");
@@ -295,8 +294,8 @@ pub async fn get_block_hash(
             }
         },
         WatcherMode::Finalized => {
-            match guard_client.rpc().finalized_head().await {
-                Ok(hash) => return Ok(hash),
+            match guard_client.backend().latest_finalized_block_ref().await {
+                Ok(hash) => return Ok(hash.hash()),
                 Err(e) => {
                     drop(guard_client);
                     log::error!("event watcher get finalized block failed for : {e:?}, try to rebuild client");
@@ -319,9 +318,9 @@ pub async fn get_block_number(
     hash: Option<<DeepSafeConfig as Config>::Hash>,
 ) -> Result<u32, String> {
     let guard_client = client.client.read().await;
-    match guard_client.rpc().header(hash).await {
-        Ok(Some(header)) => return Ok(header.number),
-        Ok(None) => return Err(format!("subxt client get empty block by hash: {hash:?}")),
+    let block_api = guard_client.blocks();
+    return match block_api.at_or_latest(hash.map(|v| BlockRef::from(v))).await {
+        Ok(block) => Ok(block.number()),
         Err(e) => {
             drop(guard_client);
             log::error!("event watcher get block by hash: {hash:?} failed for: {e:?}, try to rebuild client");
@@ -329,7 +328,7 @@ pub async fn get_block_number(
             if let Err(e) = client.handle_error(e).await {
                 return Err(e.to_string());
             }
-            return Err(err_str);
+            Err(err_str)
         }
     }
 }

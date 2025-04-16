@@ -1,11 +1,11 @@
 use crate::deepsafe::runtime_types::{
-    fp_account::AccountId20,
     pallet_facility::pallet::DIdentity,
     pallet_mining::types::{DeviceInfo, MonitorState, RegisterData},
     primitive_types::U256,
 };
 use crate::DeepSafeSubClient;
 use sp_core::H256 as Hash;
+use subxt::ext::subxt_core::utils::AccountId20;
 
 pub async fn challenges(
     sub_client: &DeepSafeSubClient,
@@ -57,9 +57,9 @@ pub async fn device_info_iter(
     sub_client: &DeepSafeSubClient,
     at_block: Option<Hash>,
 ) -> Result<Vec<DeviceInfo<AccountId20, u32, u128>>, subxt::Error> {
-    let storage_query = crate::deepsafe::storage().mining().devices_root();
+    let storage_query = crate::deepsafe::storage().mining().devices_iter();
     sub_client
-        .query_storage_value_iter(storage_query, 300, at_block)
+        .query_storage_value_iter(storage_query, at_block)
         .await
         .map(|res| res.into_iter().map(|v| v.1).collect())
 }
@@ -75,18 +75,17 @@ pub async fn device_identity_map(
 
 pub async fn device_identity_map_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, subxt::Error> {
     let storage_query = crate::deepsafe::storage()
         .mining()
-        .device_identity_map_root();
+        .device_identity_map_iter();
     sub_client
-        .query_storage_value_iter(storage_query, page_size, at_block)
+        .query_storage_value_iter(storage_query, at_block)
         .await
         .map(|res| {
             res.into_iter()
-                .map(|(k, v)| (k.0[49..].to_vec(), v))
+                .map(|(k, v)| (k[49..].to_vec(), v))
                 .collect()
         })
 }
@@ -133,12 +132,11 @@ pub async fn device_data(
 
 pub async fn devices_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<DeviceInfo<AccountId20, u32, u128>>, subxt::Error> {
-    let store = crate::deepsafe::storage().mining().devices_root();
+    let store = crate::deepsafe::storage().mining().devices_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| res.into_iter().map(|(_, v)| v).collect())
 }
@@ -156,18 +154,17 @@ pub async fn device_register_data(
 
 pub async fn device_register_data_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<(Vec<u8>, RegisterData)>, subxt::Error> {
     let store = crate::deepsafe::storage()
         .mining()
-        .device_register_data_root();
+        .device_register_data_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| {
             res.into_iter()
-                .map(|(k, v)| (k.0[49..].to_vec(), v))
+                .map(|(k, v)| (k[49..].to_vec(), v))
                 .collect()
         })
 }

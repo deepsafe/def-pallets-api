@@ -1,6 +1,7 @@
 use crate::deepsafe::runtime_types::pallet_mining::types::{MonitorType, OnChainPayload};
 use crate::{handle_custom_error, DeepSafeSubClient};
 use sp_core::H256 as Hash;
+use subxt::ext::subxt_core::utils::AccountId20;
 
 pub async fn im_online(
     client: &DeepSafeSubClient,
@@ -31,7 +32,7 @@ pub async fn report_standby(
 
 pub async fn register_device_with_ident(
     client: &DeepSafeSubClient,
-    owner: crate::deepsafe::runtime_types::fp_account::AccountId20,
+    owner: AccountId20,
     report: Vec<u8>,
     version: u16,
     identity: Vec<u8>,

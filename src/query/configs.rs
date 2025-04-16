@@ -39,15 +39,15 @@ pub async fn monitor_delay_tolerance_iter(
 ) -> Result<Vec<(u32, u64)>, subxt::Error> {
     let store = crate::deepsafe::storage()
         .configs()
-        .monitor_delay_tolerance_root();
+        .monitor_delay_tolerance_iter();
     sub_client
-        .query_storage_value_iter(store, 300, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| {
             res.into_iter()
                 .map(|(key, v)| {
                     let mut cid_bytes = [0u8; 4];
-                    cid_bytes.copy_from_slice(&key.0[48..]);
+                    cid_bytes.copy_from_slice(&key[48..]);
                     (u32::from_le_bytes(cid_bytes), v)
                 })
                 .collect()

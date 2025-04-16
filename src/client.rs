@@ -8,17 +8,14 @@ use sp_core::H256 as Hash;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use subxt::config::extrinsic_params::BaseExtrinsicParamsBuilder;
 use subxt::config::{
     polkadot::PolkadotExtrinsicParams,
     substrate::{BlakeTwo256, SubstrateHeader},
 };
-use subxt::tx::{Signer, SubmittableExtrinsic};
 use subxt::{
-    error::RpcError,
-    storage::{address::Yes, StorageAddress, StorageKey},
-    tx::{DeepSafeSigner, SecretKey, TxPayload, TxProgress},
-    Config, Error, JsonRpseeError, OnlineClient,
+    OnlineClient, Config, tx::{DeepSafeSigner, Payload as TxPayload, TxProgress, SecretKey, Signer, SubmittableExtrinsic}, JsonRpseeError,
+    Error, error::RpcError, storage::{Address as StorageAddress}, ext::subxt_core::{utils::Yes, constants::address::Address as ConstantAddress},
+    lightclient::{ChainConfig, LightClient}, config::polkadot::PolkadotExtrinsicParamsBuilder,
 };
 use tokio::sync::RwLock;
 
@@ -26,7 +23,6 @@ use tokio::sync::RwLock;
 pub enum DeepSafeConfig {}
 
 impl Config for DeepSafeConfig {
-    type Index = u32;
     type Hash = Hash;
     type AccountId = def_node_primitives::AccountId20;
     type Address = sp_runtime::MultiAddress<def_node_primitives::AccountId20, ()>;
@@ -34,6 +30,7 @@ impl Config for DeepSafeConfig {
     type Hasher = BlakeTwo256;
     type Header = SubstrateHeader<u32, BlakeTwo256>;
     type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+    type AssetId = ();
 }
 
 #[derive(Clone)]
@@ -41,12 +38,11 @@ pub struct SubClient<C: Config, P: Signer<C> + Clone> {
     pub ws_url: String,
     pub signer: Option<P>,
     pub client: Arc<RwLock<OnlineClient<C>>>,
-    pub inner_nonce: Arc<RwLock<u32>>,
+    pub inner_nonce: Arc<RwLock<u64>>,
     // number of cache, will re-submit call if 'call_cache' length up to it.
     pub cache_size_for_call: u32,
     // call cache with target nonce, ture value for 'bool' param means the tx is submitted by evm, 'Vec<u8>' is input for evm tx, 'u128' is tx tip for priority.
-    pub call_cache:
-        Arc<RwLock<HashMap<u32, (Box<dyn TxPayload + Send + Sync>, bool, Vec<u8>, u128)>>>,
+    pub call_cache: Arc<RwLock<HashMap<u64, (Box<dyn TxPayload + Send + Sync>, bool, Vec<u8>, u128)>>>,
     // milliseconds, default 10000 milllis(10 seconds)
     pub warn_time: u128,
 }
@@ -75,7 +71,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
             ws_url: url.to_string(),
             signer: Some(signer),
             client: Arc::new(RwLock::new(subxt_client)),
-            inner_nonce: Arc::new(RwLock::new(chain_nonce as u32)),
+            inner_nonce: Arc::new(RwLock::new(chain_nonce)),
             cache_size_for_call: cache_size_for_call.unwrap_or(10),
             call_cache: Arc::new(RwLock::new(HashMap::new())),
             warn_time: warn_time.unwrap_or(10000),
@@ -89,7 +85,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         cache_size_for_call: Option<u32>,
     ) -> Result<SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>>, String> {
         let mut chain_nonce = 0;
-        let subxt_client = OnlineClient::<DeepSafeConfig>::from_url(&url)
+        let subxt_client = OnlineClient::<DeepSafeConfig>::from_insecure_url(&url)
             .await
             .map_err(|e| e.to_string())?;
         let signer = if let Some(sk) = sk {
@@ -110,7 +106,31 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
             ws_url: url,
             signer,
             client: Arc::new(RwLock::new(subxt_client)),
-            inner_nonce: Arc::new(RwLock::new(chain_nonce as u32)),
+            inner_nonce: Arc::new(RwLock::new(chain_nonce)),
+            cache_size_for_call: cache_size_for_call.unwrap_or(10),
+            call_cache: Arc::new(RwLock::new(HashMap::new())),
+            warn_time: warn_time.unwrap_or(10000),
+        })
+    }
+
+    pub async fn new_light_client(_chain_spec: &str, node_ws_url: Option<String>, sk: Option<String>, warn_time: Option<u128>, cache_size_for_call: Option<u32>) -> Result<SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>>, String> {
+        use subxt::utils::fetch_chainspec_from_rpc_node;
+        let chain_spec = fetch_chainspec_from_rpc_node(&node_ws_url.clone().unwrap()).await.map_err(|e| e.to_string())?;
+        let chain_config = ChainConfig::chain_spec(chain_spec.get());
+        let (_light_client, chain_rpc) = LightClient::relay_chain(chain_config).map_err(|e| e.to_string())?;
+        let subxt_client = OnlineClient::<DeepSafeConfig>::from_rpc_client(chain_rpc).await.map_err(|e| e.to_string())?;
+        let signer = if let Some(sk) = sk {
+            let sk = hex::decode(sk.strip_prefix("0x").unwrap_or(&sk)).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
+            let signer = DeepSafeSigner::new(SecretKey::parse_slice(&sk).map_err(|e| e.to_string())?);
+            Some(signer)
+        } else {
+            None
+        };
+        Ok(SubClient {
+            ws_url: node_ws_url.unwrap(),
+            signer,
+            client: Arc::new(RwLock::new(subxt_client)),
+            inner_nonce: Arc::new(RwLock::new(0)),
             cache_size_for_call: cache_size_for_call.unwrap_or(10),
             call_cache: Arc::new(RwLock::new(HashMap::new())),
             warn_time: warn_time.unwrap_or(10000),
@@ -136,9 +156,9 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         let account_id = signer.account_id();
 
         let target_nonce = if let Some(nonce) = nonce {
-            nonce
+            nonce as u64
         } else {
-            let chain_nonce = client.tx().account_nonce(account_id).await? as u32;
+            let chain_nonce = client.tx().account_nonce(account_id).await? as u64;
             // clear cache for lower nonce, retain 10 nonce due to 'chain_nonce' can roll back
             let oldest_nonce = std::cmp::max(chain_nonce, 10);
             let old_nonce = call_cache
@@ -154,19 +174,18 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                 chain_nonce
             } else {
                 // Some errors occurred. ie. some tx with nonce not submit to chain seccessfully.
-                if *inner_nonce - chain_nonce > self.cache_size_for_call {
+                if *inner_nonce - chain_nonce > self.cache_size_for_call as u64 {
                     log::warn!(target: "subxt", "Some errors occurred to nonce inner {}, chain {}", *inner_nonce, chain_nonce);
                     for key in chain_nonce..*inner_nonce {
                         if let Some((inner_call, by_evm, _, _)) = call_cache.get(&key) {
                             let tx = if *by_evm {
                                 client.tx().create_unsigned(inner_call)?
                             } else {
-                                client.tx().create_signed_with_nonce(
+                                client.tx().create_signed(
                                     inner_call,
                                     signer,
-                                    key,
-                                    Default::default(),
-                                )?
+                                    PolkadotExtrinsicParamsBuilder::new().nonce(key).build(),
+                                ).await?
                             };
                             let tx_hash = tx.submit().await;
                             log::warn!(target: "subxt", "re-submit call with nonce: {}, res: {:?}", key, tx_hash);
@@ -178,14 +197,12 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                 *inner_nonce
             }
         };
-        let tx: subxt::tx::SubmittableExtrinsic<DeepSafeConfig, OnlineClient<DeepSafeConfig>> =
-            client.tx().create_signed_with_nonce(
+        let tx: subxt::tx::SubmittableExtrinsic<DeepSafeConfig, OnlineClient<DeepSafeConfig>> = client.tx().create_signed(
                 &call,
                 signer,
-                target_nonce,
-                Default::default(),
-            )?;
-        let tx_hash = match tx.submit_and_watch().await?.wait_for_in_block().await {
+                PolkadotExtrinsicParamsBuilder::new().nonce(target_nonce).build(),
+        ).await?;
+        let tx_hash = match tx.submit_and_watch().await?.wait_for_finalized().await {
             Ok(tx) => {
                 log::debug!(target: "subxt::nonce", "inner_nonce {}, insert cache for nonce: {}", target_nonce + 1, target_nonce);
                 *inner_nonce = target_nonce + 1;
@@ -222,9 +239,9 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         let account_id = signer.account_id();
 
         let target_nonce = if let Some(nonce) = nonce {
-            nonce
+            nonce as u64
         } else {
-            let chain_nonce = client.tx().account_nonce(account_id).await? as u32;
+            let chain_nonce = client.tx().account_nonce(account_id).await?;
             // clear cache for lower nonce
             let old_nonce = call_cache
                 .keys()
@@ -239,7 +256,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                 chain_nonce
             } else {
                 // Some errors occurred. ie. some tx with nonce not submit to chain seccessfully.
-                if *inner_nonce - chain_nonce >= self.cache_size_for_call {
+                if *inner_nonce - chain_nonce >= self.cache_size_for_call as u64 {
                     log::warn!(target: "subxt", "Some errors occurred to nonce inner {}, chain {}", *inner_nonce, chain_nonce);
                     for key in chain_nonce..*inner_nonce {
                         if let Some((inner_call, by_evm, input, tip)) = call_cache.get_mut(&key) {
@@ -257,12 +274,11 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                                 let evm_call = crate::deepsafe::tx().ethereum().transact(evm_tx);
                                 client.tx().create_unsigned(&evm_call)?
                             } else {
-                                client.tx().create_signed_with_nonce(
+                                client.tx().create_signed(
                                     inner_call,
                                     signer,
-                                    key,
-                                    BaseExtrinsicParamsBuilder::new().tip(*tip + 100),
-                                )?
+                                    PolkadotExtrinsicParamsBuilder::new().nonce(key).tip(*tip + 100).build(),
+                                ).await?
                             };
                             let tx_hash = tx.submit().await;
                             log::warn!(target: "subxt", "re-submit call with nonce: {}, tip: {:?}, res: {:?}", key, *tip + 100, tx_hash);
@@ -276,12 +292,11 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                 *inner_nonce
             }
         };
-        let tx = client.tx().create_signed_with_nonce(
+        let tx = client.tx().create_signed(
             &call,
             signer,
-            target_nonce,
-            Default::default(),
-        )?;
+            PolkadotExtrinsicParamsBuilder::new().nonce(target_nonce).build(),
+        ).await?;
         let tx_hash = match tx.submit().await {
             Ok(tx) => {
                 log::debug!(target: "subxt::nonce", "inner_nonce {}, insert cache for nonce: {}", target_nonce + 1, target_nonce);
@@ -301,7 +316,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
     pub async fn signed_tx_encode_to_bytes<Call: TxPayload + 'static + Send + Sync>(
         &self,
         call: Call,
-        nonce: Option<u32>,
+        nonce: Option<u64>,
     ) -> Result<Vec<u8>, Error> {
         let inner_nonce = self.inner_nonce.read().await;
         let mut call_cache = self.call_cache.write().await;
@@ -315,7 +330,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         let target_nonce = if let Some(nonce) = nonce {
             nonce
         } else {
-            let chain_nonce = client.tx().account_nonce(account_id).await? as u32;
+            let chain_nonce = client.tx().account_nonce(account_id).await?;
             // clear cache for lower nonce
             let old_nonce = call_cache
                 .keys()
@@ -330,7 +345,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                 chain_nonce
             } else {
                 // Some errors occurred. ie. some tx with nonce not submit to chain seccessfully.
-                if *inner_nonce - chain_nonce >= self.cache_size_for_call {
+                if *inner_nonce - chain_nonce >= self.cache_size_for_call as u64 {
                     log::warn!(target: "subxt", "Some errors occurred to nonce inner {}, chain {}", *inner_nonce, chain_nonce);
                     for key in chain_nonce..*inner_nonce {
                         if let Some((inner_call, by_evm, input, tip)) = call_cache.get_mut(&key) {
@@ -348,12 +363,11 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
                                 let evm_call = crate::deepsafe::tx().ethereum().transact(evm_tx);
                                 client.tx().create_unsigned(&evm_call)?
                             } else {
-                                client.tx().create_signed_with_nonce(
+                                client.tx().create_signed(
                                     inner_call,
                                     signer,
-                                    key,
-                                    BaseExtrinsicParamsBuilder::new().tip(*tip + 100),
-                                )?
+                                    PolkadotExtrinsicParamsBuilder::new().nonce(key).build(),
+                                ).await?
                             };
                             let tx_hash = tx.submit().await;
                             log::warn!(target: "subxt", "re-submit call with nonce: {}, tip: {:?}, res: {:?}", key, *tip + 100, tx_hash);
@@ -374,11 +388,11 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
 
         // 2. Gather the "additional" and "extra" params along with the encoded call data,
         //    ready to be signed.
-        let partial_signed = client.tx().create_partial_signed_with_nonce(
+        let partial_signed = client.tx().create_partial_signed(
             &call,
-            target_nonce,
-            Default::default(),
-        )?;
+            &signer.account_id(),
+            PolkadotExtrinsicParamsBuilder::new().nonce(target_nonce).build(),
+        ).await?;
 
         // 3. Sign and construct an extrinsic from these details.
         let tx = partial_signed.sign(signer);
@@ -405,7 +419,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         call: Call,
     ) -> Result<Vec<u8>, Error> {
         let client = self.client.read().await;
-        // 1. Validate this call against the current node metadata if the call comes
+        // 1. Validate this call against the current node metadfata if the call comes
         // with a hash allowing us to do so.
         client.tx().validate(&call)?;
 
@@ -456,7 +470,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         tx_process
     }
 
-    pub async fn query_storage<F: StorageAddress<IsFetchable = Yes>>(
+    pub async fn query_storage<F: StorageAddress<IsFetchable = Yes> + 'static + Sized>(
         &self,
         store_query: F,
         at_block: Option<Hash>,
@@ -474,33 +488,25 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         res
     }
 
-    pub async fn query_storage_value_iter<F: StorageAddress<IsIterable = Yes> + 'static>(
+    pub async fn query_storage_value_iter<F: StorageAddress<IsIterable = Yes> + 'static + Sized>(
         &self,
         store_query: F,
-        page_sise: u32,
         at_block: Option<Hash>,
-    ) -> Result<Vec<(StorageKey, F::Target)>, Error> {
+    ) -> Result<Vec<(Vec<u8>, F::Target)>, Error> {
         let timer = Instant::now();
         self.check_client_runtime_version_and_update().await?;
         let storage_client = self.client.read().await.storage();
         let mut iter = match at_block {
             Some(block) => {
-                storage_client
-                    .at(block)
-                    .iter(store_query, page_sise)
-                    .await?
+                storage_client.at(block).iter(store_query).await?
             }
             None => {
-                storage_client
-                    .at_latest()
-                    .await?
-                    .iter(store_query, page_sise)
-                    .await?
+                storage_client.at_latest().await?.iter(store_query).await?
             }
         };
         let mut values = Vec::new();
-        while let Some((key, value)) = iter.next().await? {
-            values.push((key, value))
+        while let Some(Ok(kv)) = iter.next().await {
+            values.push((kv.key_bytes.clone(), kv.value))
         }
         if timer.elapsed().as_millis() > self.warn_time {
             log::warn!(target: "subxt", "query_storage exceed warn_time: {} millis", timer.elapsed().as_millis());
@@ -508,9 +514,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         Ok(values)
     }
 
-    pub async fn query_storage_or_default<
-        F: StorageAddress<IsFetchable = Yes, IsDefaultable = Yes>,
-    >(
+    pub async fn query_storage_or_default<F: StorageAddress<IsFetchable = Yes, IsDefaultable = Yes> + 'static + Sized>(
         &self,
         store_query: F,
         at_block: Option<Hash>,
@@ -539,7 +543,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         res
     }
 
-    pub async fn query_constant<Address: subxt::constants::ConstantAddress>(
+    pub async fn query_constant<Address: ConstantAddress>(
         &self,
         address: Address,
     ) -> Result<Address::Target, Error> {
@@ -553,7 +557,7 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
         res
     }
 
-    pub async fn query_account_nonce(&self) -> Option<u32> {
+    pub async fn query_account_nonce(&self) -> Option<u64> {
         let timer = Instant::now();
         self.check_client_runtime_version_and_update().await.ok()?;
         let res = match self
@@ -665,7 +669,7 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
     pub async fn check_client_runtime_version_and_update(&self) -> Result<(), Error> {
         let timer = Instant::now();
         let client = self.client.read().await;
-        let res = match client.rpc().runtime_version(None).await {
+        let res = match client.backend().current_runtime_version().await {
             Ok(runtime_version) => {
                 if runtime_version != client.runtime_version() {
                     log::warn!(target: "subxt", "invalid runtime version, try to rebuild client...");
@@ -688,19 +692,21 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
     }
 
     pub async fn rebuild_client(&self) -> Result<(), Error> {
+        use subxt::utils::fetch_chainspec_from_rpc_node;
+
         let timer = Instant::now();
-        let res = match OnlineClient::<C>::from_url(&self.ws_url).await {
-            Ok(client) => {
-                *self.client.write().await = client;
-                log::info!(target: "subxt", "rebuild client successful");
-                Ok(())
-            }
-            Err(e) => Err(e),
-        };
+        let chain_spec = fetch_chainspec_from_rpc_node(&self.ws_url).await.map_err(|e| e.to_string())?;
+        // println!("chain_spec json: {:?}", chain_spec.get());
+        // let chain_config = ChainConfig::chain_spec(chain_spec);
+        let chain_config = ChainConfig::chain_spec(chain_spec.get());
+        let (_light_client, chain_rpc) = LightClient::relay_chain(chain_config).map_err(|e| e.to_string())?;
+        let client = OnlineClient::<C>::from_rpc_client(chain_rpc).await.map_err(|e| e.to_string())?;
+        *self.client.write().await = client;
+        log::info!(target: "subxt", "rebuild client successful");
         if timer.elapsed().as_millis() > self.warn_time {
             log::warn!(target: "subxt", "rebuild_client exceed warn_time: {} millis", timer.elapsed().as_millis());
         }
-        res
+        Ok(())
     }
 
     pub async fn handle_error(&self, err: Error) -> Result<(), Error> {
@@ -759,7 +765,7 @@ async fn test_query_iter() {
     let client = crate::client::SubClient::new_from_signer(&url, None, None, None)
         .await
         .unwrap();
-    let res = crate::query::committee::committees_iter(&client, 300, None)
+    let res = crate::query::committee::committees_iter(&client, None)
         .await
         .unwrap();
     println!("res: {res:?}");
@@ -786,6 +792,7 @@ async fn test_nonce_roll_back() {
     env_logger::init();
     use crate::DeepSafeSubClient;
     use std::str::FromStr;
+    use subxt::ext::subxt_core::utils::AccountId20;
 
     let url = "ws://127.0.0.1:9933".to_string();
     let sk_bytes = hex::decode("").unwrap();
@@ -795,13 +802,11 @@ async fn test_nonce_roll_back() {
         .await
         .unwrap();
     let account = AccountId20::from_str("0x89Bdaf4AC10bC9d497BCa9a5cc37972026146E0E").unwrap();
-    let dst = crate::deepsafe::runtime_types::fp_account::AccountId20(account.0);
+    let dst = AccountId20(account.0);
 
     for i in 0..200 {
         log::info!("index: {i}");
-        let call = crate::deepsafe::tx()
-            .balances()
-            .transfer_keep_alive(dst.clone().into(), 100000);
+        let call = crate::deepsafe::tx().balances().transfer_keep_alive(dst.into(), 100000);
         let res = client
             .submit_extrinsic_with_signer_without_watch(call, None)
             .await

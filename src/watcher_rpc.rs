@@ -16,6 +16,7 @@ use codec::Encode;
 use precompile_utils::prelude::UnboundedBytes;
 use precompile_utils::solidity::codec::Writer as EvmDataWriter;
 use sp_core::{H160, H256};
+use subxt::ext::subxt_core::utils::AccountId20;
 
 /// keccak_256("submitTxSignResult(bytes[],bytes[],uint256,uint256,bytes32,bytes[])".as_bytes())[..4]
 pub const REPORT_RESULT_SELECTOR: [u8; 4] = [118, 72, 134, 178];
@@ -39,7 +40,7 @@ pub async fn call_register_v2(
     owner_bytes.copy_from_slice(&owner);
     match register_device_with_ident(
         sub_client,
-        crate::deepsafe::runtime_types::fp_account::AccountId20(owner_bytes),
+        AccountId20(owner_bytes),
         report,
         version,
         identity,

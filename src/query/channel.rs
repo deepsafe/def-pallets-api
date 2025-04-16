@@ -1,4 +1,4 @@
-use crate::deepsafe::runtime_types::fp_account::AccountId20;
+use subxt::ext::subxt_core::utils::AccountId20;
 use crate::deepsafe::runtime_types::pallet_channel::types::{
     BtcCmtType, BtcScriptPair, BtcTxTunnel, Channel, CommitteeFeeConfig, ForcedWithdrawalRecord,
     RefreshRecord, SourceTXInfo, TaprootPair, TxMessage, UidRecord, XudtInfo, XudtIssueRecord,
@@ -71,14 +71,13 @@ pub async fn btc_committee_type(
 
 pub async fn btc_committee_type_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<BtcCmtType>, subxt::Error> {
     let store = crate::deepsafe::storage()
         .channel()
-        .btc_committee_type_root();
+        .btc_committee_type_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| res.into_iter().map(|v| v.1).collect())
 }
@@ -94,12 +93,11 @@ pub async fn escape_taproot(
 
 pub async fn escape_taproot_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<TaprootPair>, subxt::Error> {
-    let store = crate::deepsafe::storage().channel().escape_taproots_root();
+    let store = crate::deepsafe::storage().channel().escape_taproots_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| res.into_iter().map(|v| v.1).collect())
 }
@@ -115,12 +113,11 @@ pub async fn bound_script(
 
 pub async fn bound_script_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<BtcScriptPair>, subxt::Error> {
-    let store = crate::deepsafe::storage().channel().bound_scripts_root();
+    let store = crate::deepsafe::storage().channel().bound_scripts_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| res.into_iter().map(|v| v.1).collect())
 }
@@ -183,20 +180,19 @@ pub async fn committee_fee_data(
 
 pub async fn committee_fee_data_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<(u32, CommitteeFeeConfig)>, subxt::Error> {
     let store = crate::deepsafe::storage()
         .channel()
-        .committee_fee_data_root();
+        .committee_fee_data_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| {
             res.into_iter()
                 .map(|(key, value)| {
                     let mut cid_bytes = [0u8; 4];
-                    cid_bytes.copy_from_slice(&key.0[48..]);
+                    cid_bytes.copy_from_slice(&key[48..]);
                     (u32::from_le_bytes(cid_bytes), value)
                 })
                 .collect()
@@ -205,20 +201,19 @@ pub async fn committee_fee_data_iter(
 
 pub async fn channel_mapping_tick_iter(
     sub_client: &DeepSafeSubClient,
-    page_size: u32,
     at_block: Option<Hash>,
 ) -> Result<Vec<(u32, Vec<(Vec<u8>, Vec<u8>)>)>, subxt::Error> {
     let store = crate::deepsafe::storage()
         .channel()
-        .channel_mapping_tick_root();
+        .channel_mapping_tick_iter();
     sub_client
-        .query_storage_value_iter(store, page_size, at_block)
+        .query_storage_value_iter(store, at_block)
         .await
         .map(|res| {
             res.into_iter()
                 .map(|(key, value)| {
                     let mut cid_bytes = [0u8; 4];
-                    cid_bytes.copy_from_slice(&key.0[48..]);
+                    cid_bytes.copy_from_slice(&key[48..]);
                     (u32::from_le_bytes(cid_bytes), value)
                 })
                 .collect()
