@@ -224,6 +224,30 @@ pub async fn request_to_sign_refresh(
     }
 }
 
+pub async fn request_to_sign_merge_tx(
+    client: &DeepSafeSubClient,
+    cid: u32,
+    record_hash: Vec<u8>,
+    msg: Vec<u8>,
+    watch_res: bool,
+    nonce: Option<u32>,
+) -> Result<Hash, String> {
+    let call = crate::deepsafe::tx()
+        .channel()
+        .request_to_sign_merge_tx(cid, record_hash, msg);
+    if watch_res {
+        client
+            .submit_extrinsic_with_signer_and_watch(call, nonce)
+            .await
+            .map_err(|e| e.to_string())
+    } else {
+        client
+            .submit_extrinsic_with_signer_without_watch(call, nonce)
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
 pub async fn submit_refresh_result(
     client: &DeepSafeSubClient,
     cid: u32,
@@ -263,6 +287,52 @@ pub async fn submit_refresh_result_call_bytes(
         cid,
         inscription_tx,
         inscription_pos,
+        sender_pk,
+        sender_sig,
+        cmt_sig,
+        fork_id,
+    );
+    client
+        .unsigned_tx_encode_to_bytes(call)
+        .await
+        .map_err(handle_custom_error)
+}
+
+pub async fn submit_merge_tx_result(
+    client: &DeepSafeSubClient,
+    cid: u32,
+    record_hash: Vec<u8>,
+    sender_pk: Vec<u8>,
+    sender_sig: Vec<u8>,
+    cmt_sig: Vec<u8>,
+    fork_id: u8,
+) -> Result<Hash, String> {
+    let call = crate::deepsafe::tx().channel().submit_merge_tx_result(
+        cid,
+        record_hash,
+        sender_pk,
+        sender_sig,
+        cmt_sig,
+        fork_id,
+    );
+    client
+        .submit_extrinsic_without_signer(call)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn submit_merge_tx_result_call_bytes(
+    client: &DeepSafeSubClient,
+    cid: u32,
+    record_hash: Vec<u8>,
+    sender_pk: Vec<u8>,
+    sender_sig: Vec<u8>,
+    cmt_sig: Vec<u8>,
+    fork_id: u8,
+) -> Result<Vec<u8>, String> {
+    let call = crate::deepsafe::tx().channel().submit_merge_tx_result(
+        cid,
+        record_hash,
         sender_pk,
         sender_sig,
         cmt_sig,

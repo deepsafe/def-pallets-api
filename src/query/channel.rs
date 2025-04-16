@@ -1,7 +1,8 @@
 use crate::deepsafe::runtime_types::fp_account::AccountId20;
 use crate::deepsafe::runtime_types::pallet_channel::types::{
     BtcCmtType, BtcScriptPair, BtcTxTunnel, Channel, CommitteeFeeConfig, ForcedWithdrawalRecord,
-    RefreshRecord, SourceTXInfo, TaprootPair, TxMessage, UidRecord, XudtInfo, XudtIssueRecord,
+    MergeUtxoRecord, RefreshRecord, SourceTXInfo, TaprootPair, TxMessage, UidRecord, XudtInfo,
+    XudtIssueRecord,
 };
 use crate::DeepSafeSubClient;
 use sp_core::H256 as Hash;
@@ -135,6 +136,29 @@ pub async fn refresh_record(
         .channel()
         .refresh_data(inscription_hash.clone(), inscription_pos);
     sub_client.query_storage(store, at_block).await
+}
+
+pub async fn merge_record(
+    sub_client: &DeepSafeSubClient,
+    cid: u32,
+    record_hash: Vec<u8>,
+    at_block: Option<Hash>,
+) -> Option<MergeUtxoRecord> {
+    let store = crate::deepsafe::storage()
+        .channel()
+        .merge_record(cid, record_hash.clone());
+    match sub_client.query_storage(store, at_block).await {
+        Ok(res) => {
+            if res.is_none() {
+                log::warn!(target: "pallets_api", "query none merge utxo record data for cid: {:?}, record_hash: {:?}", cid, record_hash);
+            }
+            res
+        }
+        Err(e) => {
+            log::error!(target: "pallets_api", "query merge record data failed for: {:?}", e);
+            return None;
+        }
+    }
 }
 
 pub async fn committee_xudt_list(

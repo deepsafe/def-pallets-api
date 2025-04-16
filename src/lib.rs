@@ -123,6 +123,9 @@ pub enum ChannelEvent {
     RequestForcedWithdrawal,
     SignForcedWithdrawal,
     FinishForcedWithdrawal,
+    MergeUtxo,
+    SignMergeTx,
+    SubmitMergeTx,
     Unknown,
 }
 
@@ -147,6 +150,9 @@ impl ChannelEvent {
             "RequestForcedWithdrawal".into(),
             "SignForcedWithdrawal".into(),
             "FinishForcedWithdrawal".into(),
+            "MergeUtxo".into(),
+            "SignMergeTx".into(),
+            "SubmitMergeTx".into(),
         ]
     }
 }
