@@ -15,7 +15,7 @@ use subxt::config::{
 use subxt::{
     OnlineClient, Config, tx::{DeepSafeSigner, Payload as TxPayload, TxProgress, SecretKey, Signer, SubmittableExtrinsic}, JsonRpseeError,
     Error, error::RpcError, storage::{Address as StorageAddress}, ext::subxt_core::{utils::Yes, constants::address::Address as ConstantAddress},
-    lightclient::{ChainConfig, LightClient}, config::polkadot::PolkadotExtrinsicParamsBuilder,
+    lightclient::{ChainConfig, LightClient, JsonRpcError}, config::polkadot::PolkadotExtrinsicParamsBuilder,
 };
 use tokio::sync::RwLock;
 
@@ -45,6 +45,8 @@ pub struct SubClient<C: Config, P: Signer<C> + Clone> {
     pub call_cache: Arc<RwLock<HashMap<u64, (Box<dyn TxPayload + Send + Sync>, bool, Vec<u8>, u128)>>>,
     // milliseconds, default 10000 milllis(10 seconds)
     pub warn_time: u128,
+    pub chain_config: Option<String>,
+    pub enable_runtime_version_check: bool,
 }
 
 impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
@@ -75,6 +77,8 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
             cache_size_for_call: cache_size_for_call.unwrap_or(10),
             call_cache: Arc::new(RwLock::new(HashMap::new())),
             warn_time: warn_time.unwrap_or(10000),
+            chain_config: None,
+            enable_runtime_version_check: true,
         }
     }
 
@@ -110,13 +114,20 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
             cache_size_for_call: cache_size_for_call.unwrap_or(10),
             call_cache: Arc::new(RwLock::new(HashMap::new())),
             warn_time: warn_time.unwrap_or(10000),
+            chain_config: None,
+            enable_runtime_version_check: true,
         })
     }
 
-    pub async fn new_light_client(_chain_spec: &str, node_ws_url: Option<String>, sk: Option<String>, warn_time: Option<u128>, cache_size_for_call: Option<u32>) -> Result<SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>>, String> {
+    pub async fn new_light_client(chain_spec: Option<String>, node_ws_url: Option<String>, sk: Option<String>, warn_time: Option<u128>, cache_size_for_call: Option<u32>) -> Result<SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>>, String> {
         use subxt::utils::fetch_chainspec_from_rpc_node;
-        let chain_spec = fetch_chainspec_from_rpc_node(&node_ws_url.clone().unwrap()).await.map_err(|e| e.to_string())?;
-        let chain_config = ChainConfig::chain_spec(chain_spec.get());
+        let config_str = if let Some(spec) = &chain_spec {
+            spec.to_string()
+        } else {
+            let chain_spec_remote = fetch_chainspec_from_rpc_node(&node_ws_url.clone().ok_or("Not set ws url to fetch chain spec")?).await.map_err(|e| e.to_string())?;
+            chain_spec_remote.get().to_string()
+        };
+        let chain_config = ChainConfig::chain_spec(config_str);
         let (_light_client, chain_rpc) = LightClient::relay_chain(chain_config).map_err(|e| e.to_string())?;
         let subxt_client = OnlineClient::<DeepSafeConfig>::from_rpc_client(chain_rpc).await.map_err(|e| e.to_string())?;
         let signer = if let Some(sk) = sk {
@@ -127,13 +138,15 @@ impl SubClient<DeepSafeConfig, DeepSafeSigner<DeepSafeConfig>> {
             None
         };
         Ok(SubClient {
-            ws_url: node_ws_url.unwrap(),
+            ws_url: node_ws_url.unwrap_or_default(),
             signer,
             client: Arc::new(RwLock::new(subxt_client)),
             inner_nonce: Arc::new(RwLock::new(0)),
             cache_size_for_call: cache_size_for_call.unwrap_or(10),
             call_cache: Arc::new(RwLock::new(HashMap::new())),
             warn_time: warn_time.unwrap_or(10000),
+            chain_config: chain_spec,
+            enable_runtime_version_check: false,
         })
     }
 
@@ -654,7 +667,7 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
             tmp.push(ws_url.path());
             fixed_ws_url = tmp.concat();
         }
-        let subxt_client = OnlineClient::<C>::from_url(fixed_ws_url.clone()).await?;
+        let subxt_client = OnlineClient::<C>::from_insecure_url(fixed_ws_url.clone()).await?;
         Ok(SubClient {
             ws_url: fixed_ws_url,
             signer,
@@ -663,10 +676,16 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
             cache_size_for_call: cache_size_for_call.unwrap_or(10),
             call_cache: Arc::new(RwLock::new(HashMap::new())),
             warn_time: warn_time.unwrap_or(10000),
+            chain_config: None,
+            enable_runtime_version_check: true
         })
     }
 
     pub async fn check_client_runtime_version_and_update(&self) -> Result<(), Error> {
+        if !self.enable_runtime_version_check {
+            // skip runtime version check
+            return Ok(())
+        }
         let timer = Instant::now();
         let client = self.client.read().await;
         let res = match client.backend().current_runtime_version().await {
@@ -680,7 +699,7 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
                 }
             }
             Err(e) => {
-                log::warn!(target: "subxt", "rebuild client for: {:?}", e);
+                log::warn!(target: "subxt", "get remote runtime version failed for: {:?}", e);
                 drop(client);
                 self.handle_error(e).await
             }
@@ -695,10 +714,13 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
         use subxt::utils::fetch_chainspec_from_rpc_node;
 
         let timer = Instant::now();
-        let chain_spec = fetch_chainspec_from_rpc_node(&self.ws_url).await.map_err(|e| e.to_string())?;
-        // println!("chain_spec json: {:?}", chain_spec.get());
-        // let chain_config = ChainConfig::chain_spec(chain_spec);
-        let chain_config = ChainConfig::chain_spec(chain_spec.get());
+        let config_str = if let Some(spec) = &self.chain_config {
+            spec.to_string()
+        } else {
+            let chain_spec_remote = fetch_chainspec_from_rpc_node(&self.ws_url).await.map_err(|e| e.to_string())?;
+            chain_spec_remote.get().to_string()
+        };
+        let chain_config = ChainConfig::chain_spec(config_str);
         let (_light_client, chain_rpc) = LightClient::relay_chain(chain_config).map_err(|e| e.to_string())?;
         let client = OnlineClient::<C>::from_rpc_client(chain_rpc).await.map_err(|e| e.to_string())?;
         *self.client.write().await = client;
@@ -716,16 +738,26 @@ impl<C: Config, P: Signer<C> + Clone> SubClient<C, P> {
                 self.rebuild_client().await
             }
             Error::Rpc(RpcError::ClientError(client_err)) => {
-                match client_err.downcast_ref::<JsonRpseeError>() {
-                    Some(e) => match *e {
+                if let Some(e) = client_err.downcast_ref::<JsonRpseeError>() {
+                    match *e {
                         JsonRpseeError::RestartNeeded(_) => {
                             log::warn!(target: "subxt", "rebuild client for {:?}", e);
                             self.rebuild_client().await
-                        }
+                        },
                         _ => Err(Error::Rpc(RpcError::ClientError(client_err))),
-                    },
-                    // Not handle other error type now
-                    None => Err(Error::Rpc(RpcError::ClientError(client_err))),
+                    }
+                } else {
+                    if let Some(e) = client_err.downcast_ref::<JsonRpcError>() {
+                        if e.to_string().contains("No node available for storage query") {
+                            log::warn!(target: "subxt", "rebuild client for {:?}", e);
+                            self.rebuild_client().await
+                        } else {
+                            Err(Error::Rpc(RpcError::ClientError(client_err)))
+                        }
+                    } else {
+                        // Not handle other error type now
+                        Err(Error::Rpc(RpcError::ClientError(client_err)))
+                    }
                 }
             }
             _ => Err(err),

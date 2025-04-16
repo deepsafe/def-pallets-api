@@ -16,7 +16,9 @@ pub async fn block_hash(
         },
         Err(e) => {
             log::error!(target: "pallets_api", "query block hash failed: height: {:?} for {:?}", height, e);
-            Err(e.to_string())
+            let err = e.to_string();
+            sub_client.handle_error(e).await.map_err(|e| e.to_string())?;
+            Err(err)
         }
     }
 }
@@ -24,7 +26,7 @@ pub async fn block_hash(
 pub async fn latest_block_number(
     sub_client: &DeepSafeSubClient,
     at_block: Option<Hash>,
-) -> Result<Option<u32>, subxt::Error> {
+) -> Result<Option<u32>, String> {
     let storage_query = crate::deepsafe::storage().system().number();
     return match sub_client.query_storage(storage_query, at_block).await {
         Ok(res) => {
@@ -35,7 +37,9 @@ pub async fn latest_block_number(
         },
         Err(e) => {
             log::error!(target: "pallets_api", "query latest block number failed for {:?}", e);
-            Err(e)
+            let err = e.to_string();
+            sub_client.handle_error(e).await.map_err(|e| e.to_string())?;
+            Err(err)
         }
     }
 }
