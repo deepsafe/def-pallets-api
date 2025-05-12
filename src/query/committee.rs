@@ -59,11 +59,61 @@ pub async fn snapshot(
         .map(|r| r.unwrap_or_default())
 }
 
+pub async fn snapshot_index(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Vec<u16>, subxt::Error> {
+    let store = crate::deepsafe::storage().committee().snapshot_index();
+    sub_client
+        .query_storage(store, at_block)
+        .await
+        .map(|r| r.unwrap_or_default())
+}
+
+pub async fn snapshot_index_keygen(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Vec<u16>, subxt::Error> {
+    let store = crate::deepsafe::storage()
+        .committee()
+        .snapshot_index_keygen();
+    sub_client
+        .query_storage(store, at_block)
+        .await
+        .map(|r| r.unwrap_or_default())
+}
+
 pub async fn candidate_pool(
     sub_client: &DeepSafeSubClient,
     at_block: Option<Hash>,
 ) -> Result<Vec<Vec<u8>>, subxt::Error> {
     let store = crate::deepsafe::storage().committee().candidate_pool();
+    sub_client
+        .query_storage(store, at_block)
+        .await
+        .map(|r| r.unwrap_or_default())
+}
+
+pub async fn candidate_index(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Vec<u16>, subxt::Error> {
+    let store = crate::deepsafe::storage()
+        .committee()
+        .candidate_pool_index();
+    sub_client
+        .query_storage(store, at_block)
+        .await
+        .map(|r| r.unwrap_or_default())
+}
+
+pub async fn candidate_index_keygen(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Vec<u16>, subxt::Error> {
+    let store = crate::deepsafe::storage()
+        .committee()
+        .candidate_pool_index_keygen();
     sub_client
         .query_storage(store, at_block)
         .await
