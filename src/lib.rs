@@ -166,6 +166,8 @@ pub enum MiningEvent {
     DeviceTryExitService,
     DeviceExitService,
     DeviceRemoved,
+    DeviceOwnerRewardPaid,
+    DeviceVoterRewardPaid,
     Unknown,
 }
 
@@ -179,6 +181,8 @@ impl MiningEvent {
             "DeviceTryExitService".into(),
             "DeviceExitService".into(),
             "DeviceRemoved".into(),
+            "DeviceOwnerRewardPaid".into(),
+            "DeviceVoterRewardPaid".into(),
         ]
     }
 }
@@ -285,6 +289,8 @@ impl std::str::FromStr for MiningEvent {
             "DeviceTryExitService" => Ok(MiningEvent::DeviceTryExitService),
             "DeviceExitService" => Ok(MiningEvent::DeviceExitService),
             "DeviceRemoved" => Ok(MiningEvent::DeviceRemoved),
+            "DeviceOwnerRewardPaid" => Ok(MiningEvent::DeviceOwnerRewardPaid),
+            "DeviceVoterRewardPaid" => Ok(MiningEvent::DeviceVoterRewardPaid),
             _ => Ok(MiningEvent::Unknown),
         }
     }

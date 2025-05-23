@@ -3,6 +3,7 @@ use crate::deepsafe::runtime_types::{
     pallet_facility::pallet::DIdentity,
     pallet_mining::types::{DeviceInfo, MonitorState, RegisterData},
     primitive_types::U256,
+    sp_arithmetic::per_things::Perbill,
 };
 use crate::DeepSafeSubClient;
 use sp_core::H256 as Hash;
@@ -170,4 +171,128 @@ pub async fn device_register_data_iter(
                 .map(|(k, v)| (k.0[49..].to_vec(), v))
                 .collect()
         })
+}
+
+pub async fn fundation(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Option<AccountId20>, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().fundation();
+    sub_client.query_storage(store, at_block).await
+}
+
+pub async fn fundation_reward_rate(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Perbill, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().fundation_reward_rate();
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or(Perbill(750_000_000)))
+}
+
+pub async fn base_reward_rate(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<Perbill, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().base_reward_rate();
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or(Perbill(100_000_000)))
+}
+
+pub async fn rewards_for_epoch(
+    sub_client: &DeepSafeSubClient,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<u128, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().rewards_for_epoch(epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn incentive_rewards_for_epoch(
+    sub_client: &DeepSafeSubClient,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<u128, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().incentive_rewards_for_epoch(epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn number_of_pay_rewards_in_one_block(
+    sub_client: &DeepSafeSubClient,
+    at_block: Option<Hash>,
+) -> Result<u64, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().number_of_pay_rewards_in_one_block();
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn device_stake_map(
+    sub_client: &DeepSafeSubClient,
+    device_id: Vec<u8>,
+    at_block: Option<Hash>,
+) -> Result<Vec<u8>, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().device_stake_map(device_id.clone());
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or(device_id))
+}
+
+pub async fn stake_device_map(
+    sub_client: &DeepSafeSubClient,
+    stake_id: Vec<u8>,
+    at_block: Option<Hash>,
+) -> Result<Vec<u8>, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().stake_device_map(stake_id.clone());
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or(stake_id))
+}
+
+pub async fn rewards_from_committee(
+    sub_client: &DeepSafeSubClient,
+    device_id: Vec<u8>,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<(u128, u128), subxt::Error> {
+    let store = crate::deepsafe::storage().mining().rewards_from_committee(device_id, epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or((0, 0)))
+}
+
+pub async fn total_score_for_epoch(
+    sub_client: &DeepSafeSubClient,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<u128, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().total_score_for_epoch(epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn scores_for_epoch(
+    sub_client: &DeepSafeSubClient,
+    device_id: Vec<u8>,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<u128, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().scores_for_epoch(device_id, epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn devices_joined_committee(
+    sub_client: &DeepSafeSubClient,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<Vec<(Vec<u8>, u32)>, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().devices_joined_committee(epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn device_ids_waiting_pay_rewards_for_epoch(
+    sub_client: &DeepSafeSubClient,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<Vec<Vec<u8>>, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().device_ids_waiting_pay_rewards_for_epoch(epoch);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn device_commission_for_current_epoch(
+    sub_client: &DeepSafeSubClient,
+    device_id: Vec<u8>,
+    at_block: Option<Hash>,
+) -> Result<Perbill, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().device_commission_for_current_epoch(device_id);
+    sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or(Perbill(150_000_000)))
 }

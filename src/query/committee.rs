@@ -222,18 +222,6 @@ pub async fn committee_randomness(
     sub_client.query_storage(store, at_block).await
 }
 
-pub async fn unpaid_sign_fee(
-    sub_client: &DeepSafeSubClient,
-    pk: Vec<u8>,
-    epoch: u32,
-    at_block: Option<Hash>,
-) -> Result<Option<u128>, subxt::Error> {
-    let store = crate::deepsafe::storage()
-        .committee()
-        .unpaid_sign_fee(pk, epoch);
-    sub_client.query_storage(store, at_block).await
-}
-
 pub async fn identity_rewards(
     sub_client: &DeepSafeSubClient,
     ident: Vec<u8>,
@@ -260,17 +248,4 @@ pub async fn exposed_identity(
         .query_storage(store, at_block)
         .await
         .map(|r| r.unwrap_or_default())
-}
-
-pub async fn rewards_for_fork(
-    sub_client: &DeepSafeSubClient,
-    cid: u32,
-    epoch: u32,
-    fork_id: u8,
-    at_block: Option<Hash>,
-) -> Result<Option<(u128, Vec<Vec<u8>>)>, subxt::Error> {
-    let store = crate::deepsafe::storage()
-        .committee()
-        .rewards_for_fork(cid, epoch, fork_id);
-    sub_client.query_storage(store, at_block).await
 }

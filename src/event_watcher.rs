@@ -242,7 +242,7 @@ impl EventWatcher {
 pub async fn get_events(
     client: &SubClient,
     block: u32,
-    pallets: Option<Vec<&str>>,
+    filter: Option<EventFilter>,
 ) -> anyhow::Result<(Hash, Vec<EventDetails<DeepSafeConfig>>)> {
     let hash = client
         .client
@@ -257,22 +257,42 @@ pub async fn get_events(
         Ok(events) => events,
         Err(e) => anyhow::bail!("get events for block: {block}, hash: {hash:?} failed for: {e:?}"),
     };
-    let mut event_details = vec![];
-    for event in events.iter().into_iter() {
-        match event {
+    let events: Vec<_> = events
+        .iter()
+        .into_iter()
+        .filter_map(|event| match event {
             Ok(event) => {
-                if let Some(pallets) = &pallets {
-                    if pallets.contains(&event.pallet_name()) {
-                        event_details.push(event);
+                if let Some(filter) = &filter {
+                    match filter {
+                        EventFilter::Pallets(pallets) => {
+                            if pallets.contains(&event.pallet_name().to_string()) {
+                                Some(event)
+                            } else {
+                                None
+                            }
+                        },
+                        EventFilter::Events(events) => {
+                            if let Some(event_names) = events.get(&event.pallet_name().to_string()) {
+                                if event_names.contains(&event.variant_name().to_string()) {
+                                    Some(event)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
                     }
                 } else {
-                    event_details.push(event);
+                    Some(event)
                 }
+            },
+            Err(e) => {
+                panic!("event decode from metadata failed for: {e:?}");
             }
-            Err(e) => anyhow::bail!("parse event failed for {e:?}"),
-        }
-    }
-    Ok((hash, event_details))
+        })
+        .collect();
+    Ok((hash, events))
 }
 
 pub async fn get_block_hash(
