@@ -101,6 +101,15 @@ pub async fn device_monitor_state(
     sub_client.query_storage(storage_query, at_block).await
 }
 
+pub async fn device_stake_for_current_epoch(
+    sub_client: &DeepSafeSubClient,
+    id: Vec<u8>,
+    at_block: Option<Hash>,
+) -> Result<Option<u128>, subxt::Error> {
+    let storage_query = crate::deepsafe::storage().mining().device_stake_for_current_epoch(id.clone());
+    sub_client.query_storage(storage_query, at_block).await
+}
+
 pub async fn device_votes_for_current_epoch(
     sub_client: &DeepSafeSubClient,
     id: Vec<u8>,
@@ -270,13 +279,22 @@ pub async fn scores_for_epoch(
     sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
 }
 
-pub async fn devices_joined_committee(
+pub async fn total_committee_score_for_epoch(
     sub_client: &DeepSafeSubClient,
     epoch: u64,
     at_block: Option<Hash>,
-) -> Result<Vec<(Vec<u8>, u32)>, subxt::Error> {
-    let store = crate::deepsafe::storage().mining().devices_joined_committee(epoch);
+) -> Result<u128, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().total_committee_score_for_epoch(epoch);
     sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or_default())
+}
+
+pub async fn committee_scores_for_epoch(
+    sub_client: &DeepSafeSubClient,
+    epoch: u64,
+    at_block: Option<Hash>,
+) -> Result<Option<Vec<(Vec<u8>, u32, u128)>>, subxt::Error> {
+    let store = crate::deepsafe::storage().mining().committee_scores_for_epoch(epoch);
+    sub_client.query_storage(store, at_block).await
 }
 
 pub async fn device_ids_waiting_pay_rewards_for_epoch(
