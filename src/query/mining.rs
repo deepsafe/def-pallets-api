@@ -182,19 +182,19 @@ pub async fn device_register_data_iter(
         })
 }
 
-pub async fn fundation(
+pub async fn foundation(
     sub_client: &DeepSafeSubClient,
     at_block: Option<Hash>,
 ) -> Result<Option<AccountId20>, subxt::Error> {
-    let store = crate::deepsafe::storage().mining().fundation();
+    let store = crate::deepsafe::storage().mining().foundation();
     sub_client.query_storage(store, at_block).await
 }
 
-pub async fn fundation_reward_rate(
+pub async fn foundation_reward_rate(
     sub_client: &DeepSafeSubClient,
     at_block: Option<Hash>,
 ) -> Result<Perbill, subxt::Error> {
-    let store = crate::deepsafe::storage().mining().fundation_reward_rate();
+    let store = crate::deepsafe::storage().mining().foundation_reward_rate();
     sub_client.query_storage(store, at_block).await.map(|r| r.unwrap_or(Perbill(750_000_000)))
 }
 
